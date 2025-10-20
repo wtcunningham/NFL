@@ -6,7 +6,7 @@ const CACHE_MS = 15 * 60 * 1000
 const cache = new Map()
 const UA = 'GridironAI/1.0 (+local)'
 
-// Lightweight helpers
+// ---- tiny helpers ----
 async function jfetch(url) {
   const r = await fetch(url, { headers: { 'user-agent': UA, 'accept': 'application/json' } })
   if (!r.ok) return null
@@ -16,6 +16,10 @@ function clean(val, fallback = null) {
   if (val === undefined || val === null) return fallback
   if (typeof val === 'string') return val.trim()
   return val
+}
+function statusIsFiltered(s) {
+  const v = (s || '').toLowerCase()
+  return v === 'active' || v === 'probable'
 }
 
 /** Discover teams for game if IDs aren’t passed */
@@ -31,9 +35,11 @@ async function getTeamsForGame(gameId) {
 /** Follow a $ref URL and return JSON (with simple memo per request) */
 async function deref(url, memo) {
   if (!url) return null
-  if (memo.has(url)) return memo.get(url)
-  const data = await jfetch(url)
-  memo.set(url, data)
+  const href = typeof url === 'string' ? url : (url.$ref || url.href)
+  if (!href) return null
+  if (memo.has(href)) return memo.get(href)
+  const data = await jfetch(href)
+  memo.set(href, data)
   return data
 }
 
@@ -44,7 +50,6 @@ async function fetchTeamInjuriesCoreV2(teamId) {
   const list = await jfetch(listUrl)
   if (!list || !Array.isArray(list?.items) || list.items.length === 0) return []
 
-  // Concurrency-limited deref (to be gentle)
   const MAX_CONC = 8
   let idx = 0
   const items = list.items.map(i => i?.$ref || i?.href || i)
@@ -55,14 +60,20 @@ async function fetchTeamInjuriesCoreV2(teamId) {
       const my = idx++
       const ref = items[my]
       try {
-        const injury = await deref(ref, memo) // athlete injury node
+        const injury = await deref(ref, memo) // injury node
         if (!injury) continue
 
-        // Pull athlete info
-        const athlete = await deref(injury?.athlete?.$ref || injury?.athlete?.href, memo)
-        const posNode = athlete?.position
-          ? await deref(athlete.position?.$ref || athlete.position?.href, memo)
-          : null
+        // athlete and position deref
+        const athlete = await deref(injury?.athlete, memo)
+        if (!athlete) continue
+        const posNode = athlete?.position ? await deref(athlete.position, memo) : null
+
+        // headshot URL (Core v2 commonly uses .href or .$ref)
+        const headshot =
+          clean(athlete?.headshot?.href) ||
+          clean(athlete?.headshot?.$ref) ||
+          clean(athlete?.images?.[0]?.url) ||
+          null
 
         const name =
           clean(athlete?.fullName) ||
@@ -70,7 +81,6 @@ async function fetchTeamInjuriesCoreV2(teamId) {
           clean(athlete?.shortName) ||
           'Unknown'
 
-        // Some fields live at different paths depending on season/content type
         const status =
           clean(injury?.status) ||
           clean(injury?.status?.name) ||
@@ -94,17 +104,21 @@ async function fetchTeamInjuriesCoreV2(teamId) {
 
         const player_id = String(athlete?.id ?? injury?.athleteId ?? Math.random().toString(36).slice(2))
 
+        // server-side filter: exclude Active/Probable
+        if (statusIsFiltered(status)) continue
+
         results.push({
           player_id,
           name,
           pos,
           status,
           detail,
+          headshot, // <-- included for the UI
           last_updated_ts: new Date().toISOString(),
           sources: [{ name: 'ESPN Core v2', url: ref }]
         })
       } catch {
-        // swallow individual item errors; keep going
+        // ignore individual item errors
       }
     }
   }
@@ -142,7 +156,6 @@ router.get('/', async (req, res) => {
       dbg.resolved = { homeId, awayId, homeName, awayName }
     }
 
-    // Core v2: fetch injuries for both teams
     const [homePlayers, awayPlayers] = await Promise.all([
       homeId ? fetchTeamInjuriesCoreV2(homeId) : Promise.resolve([]),
       awayId ? fetchTeamInjuriesCoreV2(awayId) : Promise.resolve([])
@@ -152,12 +165,7 @@ router.get('/', async (req, res) => {
     for (const p of homePlayers) p.team = homeName || 'Home'
     for (const p of awayPlayers) p.team = awayName || 'Away'
 
-    const merged = [...homePlayers, ...awayPlayers].filter(p => {
-      const s = (p.status || '').toLowerCase()
-      return s && !['active', 'probable'].includes(s)
-    })
-
-    const data = { team_id: 'mixed', players: merged }
+    const data = { team_id: 'mixed', players: [...homePlayers, ...awayPlayers] }
 
     if (data.players.length) cache.set(gameId, { ts: Date.now(), data })
     return res.json(debug ? { ...data, debug: dbg } : data)

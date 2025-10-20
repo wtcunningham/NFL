@@ -191,11 +191,20 @@ export default function GameDetail() {
                     key={`${p.player_id}-${p.team || ""}`}
                     className="p-3 sm:p-4 flex gap-3"
                   >
-                    <div className="flex-shrink-0">
-                      <div className="h-10 w-10 rounded-full bg-slate-800 grid place-items-center text-slate-200 font-semibold">
-                        {initials(p.name)}
-                      </div>
+                <div className="flex-shrink-0">
+                {p.headshot ? (
+                    <img
+                    src={p.headshot}
+                    alt={p.name}
+                    className="h-10 w-10 rounded-full object-cover border border-slate-700"
+                    onError={(e) => (e.target.style.display = 'none')}
+                    />
+                ) : (
+                    <div className="h-10 w-10 rounded-full bg-slate-800 grid place-items-center text-slate-200 font-semibold">
+                    {initials(p.name)}
                     </div>
+                )}
+                </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <div className="font-semibold truncate">
