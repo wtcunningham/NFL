@@ -1,14 +1,15 @@
+// backend/src/api/tendencies.js
 import { Router } from 'express'
 
 const router = Router({ mergeParams: true })
 
 const UA = 'GridironAI/1.0 (+gridironai)'
-const CACHE_MS = 60 * 60 * 1000 // 60 min
+const CACHE_MS = 60 * 60 * 1000 // 60 minutes
 const cache = new Map()
 
 /* ------------------------ small utils ------------------------ */
 async function jfetch(url) {
-  const r = await fetch(url, { headers: { 'user-agent': UA, 'accept': 'application/json' } })
+  const r = await fetch(url, { headers: { 'user-agent': UA, accept: 'application/json' } })
   if (!r.ok) return null
   return r.json()
 }
@@ -33,6 +34,8 @@ const secsToMMSS = (s) => {
   const r = s % 60
   return `${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`
 }
+// Normalize ESPN Pct fields that might be 0–1 or 0–100
+const normPct = (v) => (v > 0 && v <= 1 ? v * 100 : v || 0)
 
 /* ------------------------ ESPN helpers ------------------------ */
 async function resolveTeamsForGame(gameId) {
@@ -43,7 +46,6 @@ async function resolveTeamsForGame(gameId) {
   const away = comp?.competitors?.find((c) => c.homeAway === 'away')?.team
   return { home, away }
 }
-
 async function getTeamSchedule(teamId) {
   return jfetch(`https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/${teamId}/schedule`)
 }
@@ -52,17 +54,11 @@ async function getGameSummary(eventId) {
 }
 
 /* ------------------------ Core v2 season stats ------------------------ */
-/**
- * Core v2 returns statistics under a "splits" tree with categories -> stats.
- * We flatten it to a { key: value } map. Keys vary; we search by multiple names/regex.
- */
 async function fetchCoreTeamStats(teamId, season, type, dbg) {
   const url = `https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/${season}/types/${type}/teams/${teamId}/statistics`
   const root = await jfetch(url)
   if (!root) return null
 
-  // Newer Core v2 returns stats directly under splits.categories[].stats[]
-  // Sometimes you need to deref .$ref (rare here), but root already has values typically.
   const out = {}
   const splits = root?.splits || root?.statistics || null
   const cats = Array.isArray(splits?.categories) ? splits.categories : []
@@ -74,21 +70,20 @@ async function fetchCoreTeamStats(teamId, season, type, dbg) {
       if (!key) continue
       const raw = s?.value ?? s?.displayValue
       if (raw == null || raw === '') continue
-      const num = typeof raw === 'string' && /^[\d\.\-:]+$/.test(raw) && !raw.includes(':')
-        ? Number(raw)
-        : raw
+      const num =
+        typeof raw === 'string' && /^[\d.\-:]+$/.test(raw) && !raw.includes(':')
+          ? Number(raw)
+          : raw
       out[key] = num
     }
   }
 
-  dbg?.push({ source: 'core', url, keys: Object.keys(out).slice(0, 40) })
+  dbg?.push({ source: 'core', url, keys: Object.keys(out).slice(0, 60) })
   return out
 }
 
 function pickNum(map, names = [], regexes = []) {
-  for (const n of names) {
-    if (map[n] != null) return Number(map[n]) || 0
-  }
+  for (const n of names) if (map[n] != null) return Number(map[n]) || 0
   for (const r of regexes) {
     const hit = Object.keys(map).find((k) => r.test(k))
     if (hit) return Number(map[hit]) || 0
@@ -99,60 +94,30 @@ function pickNum(map, names = [], regexes = []) {
 function deriveSeasonTendenciesFromCore(statsMap, dbg) {
   if (!statsMap) return null
 
-  // Attempts or plays (many feeds have both; we try both)
-  const passAtt = pickNum(
-    statsMap,
-    ['passingAttempts', 'passAttempts', 'teamPassingAttempts'],
-    [/^pass.*attempt/i]
-  )
-  const rushAtt = pickNum(
-    statsMap,
-    ['rushingAttempts', 'rushAttempts', 'teamRushingAttempts', 'carries'],
-    [/^rush.*attempt/i, /carry/i]
-  )
-  const plays = pickNum(
-    statsMap,
-    ['offensivePlays', 'teamOffensivePlays'],
-    [/offen.*play/i]
-  ) || (passAtt + rushAtt)
+  // Attempts / Plays
+  const passAtt = pickNum(statsMap, ['passingAttempts', 'passAttempts', 'teamPassingAttempts'], [/^pass.*attempt/i])
+  const rushAtt = pickNum(statsMap, ['rushingAttempts', 'rushAttempts', 'teamRushingAttempts', 'carries'], [/^rush.*attempt/i, /carry/i])
+  const plays =
+    pickNum(statsMap, ['offensivePlays', 'teamOffensivePlays'], [/offen.*play/i]) ||
+    (passAtt + rushAtt)
 
   // Third down
-  const thirdMade = pickNum(
-    statsMap,
-    ['thirdDownConversions', 'thirdDownConverted'],
-    [/third.*conv(ersion)?/i]
-  )
-  const thirdAtt = pickNum(
-    statsMap,
-    ['thirdDownAttempts', 'thirdDownTotal'],
-    [/third.*att/i]
-  )
+  const thirdMade = pickNum(statsMap, ['thirdDownConversions', 'thirdDownConverted'], [/third.*conv(ersion)?/i])
+  const thirdAtt = pickNum(statsMap, ['thirdDownAttempts', 'thirdDownTotal'], [/third.*att/i])
 
-  // Red zone (scores/attempts vary: "redZoneScores", "redZoneConverted", "redZoneTrips")
-  const rzMade = pickNum(
-    statsMap,
-    ['redZoneScores', 'redZoneConverted', 'redZoneTouchdowns'],
-    [/red.?zone.*(score|td|conv)/i]
-  )
-  const rzAtt = pickNum(
-    statsMap,
-    ['redZoneAttempts', 'redZoneOpportunities', 'redZoneTrips'],
-    [/red.?zone.*(att|opp|trip)/i]
-  )
+  // Red zone direct % (prefer TD% as conversion rate)
+  const rzTdPctCore = normPct(pickNum(statsMap, ['redzoneTouchdownPct'], [/red.?zone.*touchdown.*pct/i]))
+  const rzScorePctCore = normPct(pickNum(statsMap, ['redzoneScoringPct'], [/red.?zone.*scor.*pct/i]))
+  const rzEffPctCore = normPct(pickNum(statsMap, ['redzoneEfficiencyPct'], [/red.?zone.*eff.*pct/i]))
 
-  // Time of possession: seconds or mm:ss
-  let toSeconds = pickNum(statsMap, ['timeOfPossessionSeconds', 'possessionTimeSeconds'], [])
-  if (!toSeconds) {
-    const toStr =
-      statsMap['timeOfPossession'] ||
-      statsMap['possessionTime'] ||
-      null
-    if (typeof toStr === 'string') toSeconds = parseTOSecs(toStr)
-  }
+  // Attempts-based fallback
+  const rzMade = pickNum(statsMap, ['redZoneScores', 'redZoneConverted', 'redZoneTouchdowns'], [/red.?zone.*(score|td|conv)/i])
+  const rzAtt = pickNum(statsMap, ['redZoneAttempts', 'redZoneOpportunities', 'redZoneTrips'], [/red.?zone.*(att|opp|trip)/i])
+  const rzPctFallback = pct(rzMade, rzAtt)
 
   const games =
     pickNum(statsMap, ['gamesPlayed', 'games'], [/games?played/i]) ||
-    pickNum(statsMap, ['wins'], [/wins?/i]) + pickNum(statsMap, ['losses'], [/loss(es)?/i]) ||
+    (pickNum(statsMap, ['wins'], [/wins?/i]) + pickNum(statsMap, ['losses'], [/loss(es)?/i])) ||
     0
 
   if (plays <= 0 || games <= 0) {
@@ -162,14 +127,24 @@ function deriveSeasonTendenciesFromCore(statsMap, dbg) {
 
   const passRate = pct(passAtt, passAtt + rushAtt)
   const thirdPct = pct(thirdMade, thirdAtt)
-  const rzPct = pct(rzMade, rzAtt)
+  const redZonePctFinal = rzTdPctCore || rzScorePctCore || rzEffPctCore || rzPctFallback
   const playsPg = Math.round(plays / games)
+
+  // TOP seconds or mm:ss
+  let toSeconds = pickNum(statsMap, ['timeOfPossessionSeconds', 'possessionTimeSeconds'])
+  if (!toSeconds) {
+    const toStr = statsMap['timeOfPossession'] || statsMap['possessionTime'] || null
+    if (typeof toStr === 'string') toSeconds = parseTOSecs(toStr)
+  }
+
   const avgTOP = secsToMMSS(Math.round(toSeconds / (games || 1)))
 
   dbg?.push({
     core_usable: true,
     passAtt, rushAtt, plays, games,
-    thirdMade, thirdAtt, rzMade, rzAtt, toSeconds
+    thirdMade, thirdAtt,
+    redZonePctFinal: redZonePctFinal,
+    toSeconds
   })
 
   return {
@@ -177,7 +152,7 @@ function deriveSeasonTendenciesFromCore(statsMap, dbg) {
     pass_rate_pct: Math.round(passRate),
     rush_rate_pct: Math.round(100 - passRate),
     third_down_pct: Math.round(thirdPct),
-    red_zone_pct: Math.round(rzPct),
+    red_zone_pct: Math.round(redZonePctFinal),
     plays_pg: playsPg,
     time_possession_avg: avgTOP
   }
@@ -188,7 +163,6 @@ function statValue(statsArr, name) {
   const s = (statsArr || []).find((x) => x?.name === name)
   return s?.value ?? s?.displayValue ?? null
 }
-
 function sumPlayerAttempts(summary, teamId, categoryName, attemptKeys = []) {
   const blocks = summary?.boxscore?.players || []
   const teamBlock = blocks.find((t) => String(t?.team?.id) === String(teamId))
@@ -207,7 +181,6 @@ function sumPlayerAttempts(summary, teamId, categoryName, attemptKeys = []) {
   }
   return total
 }
-
 function extractPerGame(summary, teamId, dbg) {
   const teamBox = (summary?.boxscore?.teams || []).find((t) => String(t?.team?.id) === String(teamId))
   const stats = teamBox?.statistics || []
@@ -258,7 +231,6 @@ function extractPerGame(summary, teamId, dbg) {
     toSecs
   }
 }
-
 async function buildTendenciesFromLastN(teamId, gameIds, label, maxGames = 3, dbgArr) {
   const recent = []
   for (const evId of gameIds) {
@@ -313,8 +285,9 @@ router.get('/', async (req, res) => {
       return res.status(200).json({ error: 'Teams not found', home: null, away: null })
     }
 
-    // First try: Core v2 season stats for both teams
     const dbg = { mode: 'core-preferred', season, type }
+
+    // Try Core v2 first
     const [homeCore, awayCore] = await Promise.all([
       fetchCoreTeamStats(home.id, season, type, (dbg.home_core = [])),
       fetchCoreTeamStats(away.id, season, type, (dbg.away_core = [])),
@@ -323,10 +296,10 @@ router.get('/', async (req, res) => {
     const homeFromCore = deriveSeasonTendenciesFromCore(homeCore, dbg.home_core)
     const awayFromCore = deriveSeasonTendenciesFromCore(awayCore, dbg.away_core)
 
-    // Fallback (any side missing)
     let homeFinal = homeFromCore
     let awayFinal = awayFromCore
 
+    // Fallback to last-N completed games if either side missing
     if (!homeFromCore || !awayFromCore) {
       dbg.mode = 'core+fallback-lastN'
       const [homeSch, awaySch] = await Promise.all([
