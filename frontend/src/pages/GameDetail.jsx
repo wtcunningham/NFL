@@ -42,7 +42,6 @@ const initials = (name = "") =>
 const fmtDay = (iso) => {
   try {
     const d = new Date(iso);
-    // e.g., "Oct 18"
     return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   } catch {
     return "Recent";
@@ -59,7 +58,7 @@ export default function GameDetail() {
   const [spotlights, setSpotlights] = useState(null);
   const [error, setError] = useState(null);
 
-  // 1) fetch meta
+  // 1️⃣ Fetch meta
   useEffect(() => {
     setMeta(null);
     setInjuries(null);
@@ -73,7 +72,7 @@ export default function GameDetail() {
       .catch((e) => setError(String(e)));
   }, [id]);
 
-  // 2) after meta, fetch the rest (pass team IDs to injuries)
+  // 2️⃣ Fetch injuries + other data
   useEffect(() => {
     if (!meta) return;
 
@@ -88,7 +87,6 @@ export default function GameDetail() {
     fetch(`${API}/games/${id}/injuries?${qs}`)
       .then((r) => r.json())
       .then((payload) => {
-        // also filter client-side as a safeguard
         const filtered = (payload.players || []).filter((p) => {
           const s = (p.status || "").toLowerCase();
           return s && !["active", "probable"].includes(s);
@@ -108,33 +106,100 @@ export default function GameDetail() {
       .catch(() => {});
   }, [id, meta]);
 
-  // 3) group injuries by day (uses `date` if provided; else `last_updated_ts`)
-  const groupedInjuries = useMemo(() => {
-    const byDay = new Map();
-    for (const p of injuries?.players || []) {
-      const key = fmtDay(p.date || p.last_updated_ts || Date.now());
-      if (!byDay.has(key)) byDay.set(key, []);
-      byDay.get(key).push(p);
-    }
-    // keep newest day first (best-effort sort: parse back to Date)
-    return [...byDay.entries()].sort((a, b) => {
-      const da = new Date(a[0] + " 00:00");
-      const db = new Date(b[0] + " 00:00");
-      return db - da;
-    });
-  }, [injuries]);
+  // 3️⃣ Split injuries by team + day
+  const { homeInj, awayInj } = useMemo(() => {
+    const players = injuries?.players || [];
+    const home = players.filter(
+      (p) => (p.team || "").toLowerCase() === (meta?.home_team || "").toLowerCase()
+    );
+    const away = players.filter(
+      (p) => (p.team || "").toLowerCase() === (meta?.away_team || "").toLowerCase()
+    );
 
-  if (error) {
+    const groupByDate = (arr) => {
+      const map = new Map();
+      for (const p of arr) {
+        const k = fmtDay(p.date || p.last_updated_ts);
+        if (!map.has(k)) map.set(k, []);
+        map.get(k).push(p);
+      }
+      return [...map.entries()].sort(
+        (a, b) => new Date(b[0]) - new Date(a[0])
+      );
+    };
+    return { homeInj: groupByDate(home), awayInj: groupByDate(away) };
+  }, [injuries, meta]);
+
+  /* ---------------------- Render ---------------------- */
+  if (error)
     return (
       <div className="max-w-5xl mx-auto p-6 text-red-400">Error: {error}</div>
     );
-  }
-  if (!meta) {
-    return <div className="max-w-5xl mx-auto p-6">Loading…</div>;
-  }
+  if (!meta) return <div className="max-w-5xl mx-auto p-6">Loading…</div>;
+
+  const renderTeamInjuries = (teamLabel, grouped) => (
+    <div>
+      <h4 className="text-base font-semibold mb-2">{teamLabel}</h4>
+      {grouped.length === 0 ? (
+        <div className="opacity-70 text-sm">No injuries.</div>
+      ) : (
+        <div className="space-y-5">
+          {grouped.map(([day, players]) => (
+            <div key={day}>
+              <div className="text-xs uppercase tracking-wide mb-1 text-slate-400">
+                {day}
+              </div>
+              <div className="divide-y divide-slate-800 rounded-xl overflow-hidden bg-slate-900/60">
+                {players.map((p) => (
+                  <div
+                    key={`${p.player_id}-${p.team || ""}`}
+                    className="p-3 sm:p-4 flex gap-3"
+                  >
+                    <div className="flex-shrink-0">
+                      <div className="h-10 w-10 rounded-full bg-slate-800 grid place-items-center text-slate-200 font-semibold">
+                        {initials(p.name)}
+                      </div>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className="font-semibold truncate">
+                          {p.name}
+                          {p.pos ? (
+                            <span className="opacity-70 font-normal">
+                              {" "}
+                              ({p.pos})
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="mt-1 flex items-center gap-2">
+                        <span
+                          className={
+                            "text-xs px-2 py-0.5 rounded-full " +
+                            statusStyles(p.status)
+                          }
+                        >
+                          {p.status}
+                        </span>
+                      </div>
+                      {p.detail ? (
+                        <div className="text-sm opacity-90 mt-1">
+                          {p.detail}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 
   return (
-    <div className="max-w-5xl mx-auto p-6">
+    <div className="max-w-6xl mx-auto p-6">
       <Link to="/" className="text-sm opacity-80">
         &larr; Back to games
       </Link>
@@ -143,7 +208,8 @@ export default function GameDetail() {
         {meta.away_team} @ {meta.home_team}
       </h1>
       <div className="opacity-80 mt-1">
-        {new Date(meta.kickoff_ts).toLocaleString()} • {meta.venue || "TBD venue"}
+        {new Date(meta.kickoff_ts).toLocaleString()} •{" "}
+        {meta.venue || "TBD venue"}
       </div>
 
       {/* -------------------- Injuries -------------------- */}
@@ -153,60 +219,9 @@ export default function GameDetail() {
         ) : (injuries.players || []).length === 0 ? (
           <div className="opacity-70">No recent injuries recorded.</div>
         ) : (
-          <div className="space-y-6">
-            {groupedInjuries.map(([day, players]) => (
-              <div key={day}>
-                <div className="text-xs uppercase tracking-wide mb-2 text-slate-400">
-                  {day}
-                </div>
-                <div className="divide-y divide-slate-800 rounded-xl overflow-hidden bg-slate-900/60">
-                  {players.map((p) => (
-                    <div
-                      key={`${p.player_id}-${p.team || ""}`}
-                      className="p-3 sm:p-4 flex gap-3"
-                    >
-                      {/* avatar w/ initials */}
-                      <div className="flex-shrink-0">
-                        <div className="h-10 w-10 rounded-full bg-slate-800 grid place-items-center text-slate-200 font-semibold">
-                          {initials(p.name)}
-                        </div>
-                      </div>
-
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <div className="font-semibold truncate">
-                            {p.name}
-                            {p.pos ? (
-                              <span className="opacity-70 font-normal"> ({p.pos})</span>
-                            ) : null}
-                          </div>
-                          {p.team ? (
-                            <span className="opacity-70 text-sm">• {p.team}</span>
-                          ) : null}
-                        </div>
-
-                        <div className="mt-1 flex items-center gap-2">
-                          <span
-                            className={
-                              "text-xs px-2 py-0.5 rounded-full " +
-                              statusStyles(p.status)
-                            }
-                          >
-                            {p.status}
-                          </span>
-                        </div>
-
-                        {p.detail ? (
-                          <div className="text-sm opacity-90 mt-1">
-                            {p.detail}
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
+          <div className="grid sm:grid-cols-2 gap-8">
+            {renderTeamInjuries(meta.away_team, awayInj)}
+            {renderTeamInjuries(meta.home_team, homeInj)}
           </div>
         )}
       </Section>
