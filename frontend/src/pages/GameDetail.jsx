@@ -48,7 +48,7 @@ const fmtDay = (iso) => {
   }
 };
 
-const MAX_VISIBLE_PER_TEAM = 0; // your preferred "always scroll" setup
+const MAX_VISIBLE_PER_TEAM = 0; // always scrollable
 
 /* ---------------------- Page ---------------------- */
 export default function GameDetail() {
@@ -60,7 +60,7 @@ export default function GameDetail() {
   const [spotlights, setSpotlights] = useState(null);
   const [error, setError] = useState(null);
 
-  // per-team status filters (set of status strings)
+  // per-team filters
   const [homeFilter, setHomeFilter] = useState(() => new Set());
   const [awayFilter, setAwayFilter] = useState(() => new Set());
 
@@ -114,7 +114,6 @@ export default function GameDetail() {
       .catch(() => {});
   }, [id, meta]);
 
-  // helpers for filtering logic
   const matchesFilter = (p, filterSet) => {
     if (!filterSet || filterSet.size === 0) return true;
     const s = (p.status || "").toLowerCase();
@@ -124,21 +123,24 @@ export default function GameDetail() {
     return false;
   };
 
-  // 3️⃣ Split injuries by team + day + legends (counts are from full team list, filters affect the view)
   const {
-    homeInj, awayInj,
-    homeLegend, awayLegend,
-    homeTotal, awayTotal,
+    homeInj,
+    awayInj,
+    homeLegend,
+    awayLegend,
+    homeTotal,
+    awayTotal,
   } = useMemo(() => {
     const players = injuries?.players || [];
     const homeAll = players.filter(
-      (p) => (p.team || "").toLowerCase() === (meta?.home_team || "").toLowerCase()
+      (p) =>
+        (p.team || "").toLowerCase() === (meta?.home_team || "").toLowerCase()
     );
     const awayAll = players.filter(
-      (p) => (p.team || "").toLowerCase() === (meta?.away_team || "").toLowerCase()
+      (p) =>
+        (p.team || "").toLowerCase() === (meta?.away_team || "").toLowerCase()
     );
 
-    // Apply per-team filters to visible lists
     const homeVisible = homeAll.filter((p) => matchesFilter(p, homeFilter));
     const awayVisible = awayAll.filter((p) => matchesFilter(p, awayFilter));
 
@@ -165,7 +167,7 @@ export default function GameDetail() {
     return {
       homeInj: groupByDate(homeVisible),
       awayInj: groupByDate(awayVisible),
-      homeLegend: countStatuses(homeAll), // legend shows full team totals
+      homeLegend: countStatuses(homeAll),
       awayLegend: countStatuses(awayAll),
       homeTotal: homeAll.length,
       awayTotal: awayAll.length,
@@ -213,7 +215,6 @@ export default function GameDetail() {
               statusStyles(status) +
               (active ? " ring-2 ring-offset-0 ring-slate-300/40" : "")
             }
-            title={active ? "Click to remove filter" : "Click to filter"}
           >
             {count} {status}
           </button>
@@ -227,7 +228,6 @@ export default function GameDetail() {
           type="button"
           onClick={() => clearFilter(teamKey)}
           className="text-xs ml-2 underline underline-offset-2 text-slate-300 hover:text-slate-100"
-          title="Clear filters"
         >
           Clear
         </button>
@@ -235,7 +235,6 @@ export default function GameDetail() {
     </div>
   );
 
-  // Flatten grouped -> list preserving order, then split -> regroup to keep headers in each part
   const flatten = (grouped) => {
     const list = [];
     for (const [day, players] of grouped) {
@@ -298,14 +297,9 @@ export default function GameDetail() {
     </div>
   );
 
-  // Renders first N entries (N=MAX_VISIBLE_PER_TEAM), then scrollable rest
   const renderTeamInjuries = (teamLabel, grouped, legend, total, teamKey) => {
     const flat = flatten(grouped);
-    const top = MAX_VISIBLE_PER_TEAM > 0 ? flat.slice(0, MAX_VISIBLE_PER_TEAM) : [];
-    const rest = MAX_VISIBLE_PER_TEAM > 0 ? flat.slice(MAX_VISIBLE_PER_TEAM) : flat;
-    const topGrouped = regroup(top);
-    const restGrouped = regroup(rest);
-
+    const restGrouped = regroup(flat);
     return (
       <div>
         <h4 className="text-base font-semibold mb-2">{teamLabel}</h4>
@@ -313,18 +307,14 @@ export default function GameDetail() {
         {flat.length === 0 ? (
           <div className="opacity-70 text-sm">No injuries.</div>
         ) : (
-          <div className="space-y-4">
-            {MAX_VISIBLE_PER_TEAM > 0 && renderGroupedList(topGrouped)}
-            <div className="max-h-72 overflow-y-auto pr-2 custom-scroll">
-              {renderGroupedList(restGrouped)}
-            </div>
+          <div className="max-h-72 overflow-y-auto pr-2 custom-scroll">
+            {renderGroupedList(restGrouped)}
           </div>
         )}
       </div>
     );
   };
 
-  /* ---------------------- Render ---------------------- */
   if (error)
     return (
       <div className="max-w-5xl mx-auto p-6 text-red-400">Error: {error}</div>
@@ -344,7 +334,6 @@ export default function GameDetail() {
         {new Date(meta.kickoff_ts).toLocaleString()} • {meta.venue || "TBD venue"}
       </div>
 
-      {/* -------------------- Injuries -------------------- */}
       <Section title="Injuries">
         {!injuries ? (
           <div className="opacity-70">Loading…</div>
@@ -355,43 +344,6 @@ export default function GameDetail() {
             {renderTeamInjuries(meta.away_team, awayInj, awayLegend, awayTotal, "away")}
             {renderTeamInjuries(meta.home_team, homeInj, homeLegend, homeTotal, "home")}
           </div>
-        )}
-      </Section>
-
-      {/* -------------------- Tendencies -------------------- */}
-      <Section title="Tendencies">
-        {tendencies ? (
-          <pre className="text-sm whitespace-pre-wrap">
-            {JSON.stringify(tendencies, null, 2)}
-          </pre>
-        ) : (
-          <div className="opacity-70">Loading…</div>
-        )}
-      </Section>
-
-      {/* -------------------- Spotlights -------------------- */}
-      <Section title="Spotlights">
-        {spotlights ? (
-          <div className="grid sm:grid-cols-2 gap-3">
-            {(spotlights.players || []).map((pl) => (
-              <div
-                key={pl.player_id}
-                className="rounded-xl border border-slate-800 p-3"
-              >
-                <div className="font-medium">
-                  {pl.name} <span className="opacity-70">({pl.pos})</span>
-                </div>
-                <div className="opacity-80 text-sm">
-                  Confidence: {pl.confidence?.toFixed?.(1) ?? pl.confidence ?? "—"}%
-                </div>
-                {pl.rationale ? (
-                  <div className="opacity-80 text-sm mt-1">{pl.rationale}</div>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="opacity-70">Loading…</div>
         )}
       </Section>
     </div>
