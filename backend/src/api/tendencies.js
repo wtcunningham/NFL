@@ -1,30 +1,27 @@
-// backend/src/api/tendencies.js
 import { Router } from 'express'
 
 const router = Router({ mergeParams: true })
-const UA = 'GridironAI/1.0 (+local)'
-const CACHE_MS = 60 * 60 * 1000
+
+const UA = 'GridironAI/1.0 (+gridironai)'
+const CACHE_MS = 60 * 60 * 1000 // 60 min
 const cache = new Map()
 
-const jfetch = async (url) => {
+/* ------------------------ small utils ------------------------ */
+async function jfetch(url) {
   const r = await fetch(url, { headers: { 'user-agent': UA, 'accept': 'application/json' } })
   if (!r.ok) return null
   return r.json()
 }
-const clean = (v, d = null) => (v === undefined || v === null ? d : v)
 const pct = (num, den) => (den > 0 ? (num / den) * 100 : 0)
 const avg = (arr) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0)
 
-// "3-10" -> { made:3, att:10, pct:30 }
-const parsePair = (txt) => {
+function parsePair(txt) {
   if (!txt || typeof txt !== 'string') return { made: 0, att: 0, pct: 0 }
   const m = txt.match(/(\d+)\s*-\s*(\d+)/)
   const made = m ? parseInt(m[1], 10) : 0
   const att = m ? parseInt(m[2], 10) : 0
   return { made, att, pct: pct(made, att) }
 }
-
-// "31:45" -> seconds
 const parseTOSecs = (txt) => {
   if (!txt) return 0
   const m = txt.match(/(\d+):(\d+)/)
@@ -37,102 +34,276 @@ const secsToMMSS = (s) => {
   return `${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`
 }
 
+/* ------------------------ ESPN helpers ------------------------ */
 async function resolveTeamsForGame(gameId) {
   const board = await jfetch('https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard')
-  const ev = (board?.events || []).find(e => e.id === gameId)
+  const ev = (board?.events || []).find((e) => e.id === gameId)
   const comp = ev?.competitions?.[0]
-  const home = comp?.competitors?.find(c => c.homeAway === 'home')?.team
-  const away = comp?.competitors?.find(c => c.homeAway === 'away')?.team
+  const home = comp?.competitors?.find((c) => c.homeAway === 'home')?.team
+  const away = comp?.competitors?.find((c) => c.homeAway === 'away')?.team
   return { home, away }
 }
 
 async function getTeamSchedule(teamId) {
-  const url = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/${teamId}/schedule`
-  return jfetch(url)
+  return jfetch(`https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/${teamId}/schedule`)
 }
-
 async function getGameSummary(eventId) {
-  const url = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${eventId}`
-  return jfetch(url)
+  return jfetch(`https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${eventId}`)
 }
 
-function pickTeamFromSummary(summary, teamId) {
-  // summary.boxscore.teams: [{team:{id,name}, statistics:[{name,displayValue}]}]
-  const teams = summary?.boxscore?.teams || []
-  return teams.find(t => String(t?.team?.id) === String(teamId))
+/* ------------------------ Core v2 season stats ------------------------ */
+/**
+ * Core v2 returns statistics under a "splits" tree with categories -> stats.
+ * We flatten it to a { key: value } map. Keys vary; we search by multiple names/regex.
+ */
+async function fetchCoreTeamStats(teamId, season, type, dbg) {
+  const url = `https://sports.core.api.espn.com/v2/sports/football/leagues/nfl/seasons/${season}/types/${type}/teams/${teamId}/statistics`
+  const root = await jfetch(url)
+  if (!root) return null
+
+  // Newer Core v2 returns stats directly under splits.categories[].stats[]
+  // Sometimes you need to deref .$ref (rare here), but root already has values typically.
+  const out = {}
+  const splits = root?.splits || root?.statistics || null
+  const cats = Array.isArray(splits?.categories) ? splits.categories : []
+
+  for (const cat of cats) {
+    const stats = Array.isArray(cat?.stats) ? cat.stats : []
+    for (const s of stats) {
+      const key = String(s?.name || s?.shortDisplayName || s?.displayName || '').trim()
+      if (!key) continue
+      const raw = s?.value ?? s?.displayValue
+      if (raw == null || raw === '') continue
+      const num = typeof raw === 'string' && /^[\d\.\-:]+$/.test(raw) && !raw.includes(':')
+        ? Number(raw)
+        : raw
+      out[key] = num
+    }
+  }
+
+  dbg?.push({ source: 'core', url, keys: Object.keys(out).slice(0, 40) })
+  return out
 }
 
+function pickNum(map, names = [], regexes = []) {
+  for (const n of names) {
+    if (map[n] != null) return Number(map[n]) || 0
+  }
+  for (const r of regexes) {
+    const hit = Object.keys(map).find((k) => r.test(k))
+    if (hit) return Number(map[hit]) || 0
+  }
+  return 0
+}
+
+function deriveSeasonTendenciesFromCore(statsMap, dbg) {
+  if (!statsMap) return null
+
+  // Attempts or plays (many feeds have both; we try both)
+  const passAtt = pickNum(
+    statsMap,
+    ['passingAttempts', 'passAttempts', 'teamPassingAttempts'],
+    [/^pass.*attempt/i]
+  )
+  const rushAtt = pickNum(
+    statsMap,
+    ['rushingAttempts', 'rushAttempts', 'teamRushingAttempts', 'carries'],
+    [/^rush.*attempt/i, /carry/i]
+  )
+  const plays = pickNum(
+    statsMap,
+    ['offensivePlays', 'teamOffensivePlays'],
+    [/offen.*play/i]
+  ) || (passAtt + rushAtt)
+
+  // Third down
+  const thirdMade = pickNum(
+    statsMap,
+    ['thirdDownConversions', 'thirdDownConverted'],
+    [/third.*conv(ersion)?/i]
+  )
+  const thirdAtt = pickNum(
+    statsMap,
+    ['thirdDownAttempts', 'thirdDownTotal'],
+    [/third.*att/i]
+  )
+
+  // Red zone (scores/attempts vary: "redZoneScores", "redZoneConverted", "redZoneTrips")
+  const rzMade = pickNum(
+    statsMap,
+    ['redZoneScores', 'redZoneConverted', 'redZoneTouchdowns'],
+    [/red.?zone.*(score|td|conv)/i]
+  )
+  const rzAtt = pickNum(
+    statsMap,
+    ['redZoneAttempts', 'redZoneOpportunities', 'redZoneTrips'],
+    [/red.?zone.*(att|opp|trip)/i]
+  )
+
+  // Time of possession: seconds or mm:ss
+  let toSeconds = pickNum(statsMap, ['timeOfPossessionSeconds', 'possessionTimeSeconds'], [])
+  if (!toSeconds) {
+    const toStr =
+      statsMap['timeOfPossession'] ||
+      statsMap['possessionTime'] ||
+      null
+    if (typeof toStr === 'string') toSeconds = parseTOSecs(toStr)
+  }
+
+  const games =
+    pickNum(statsMap, ['gamesPlayed', 'games'], [/games?played/i]) ||
+    pickNum(statsMap, ['wins'], [/wins?/i]) + pickNum(statsMap, ['losses'], [/loss(es)?/i]) ||
+    0
+
+  if (plays <= 0 || games <= 0) {
+    dbg?.push({ core_usable: false, reason: `plays=${plays} games=${games}` })
+    return null
+  }
+
+  const passRate = pct(passAtt, passAtt + rushAtt)
+  const thirdPct = pct(thirdMade, thirdAtt)
+  const rzPct = pct(rzMade, rzAtt)
+  const playsPg = Math.round(plays / games)
+  const avgTOP = secsToMMSS(Math.round(toSeconds / (games || 1)))
+
+  dbg?.push({
+    core_usable: true,
+    passAtt, rushAtt, plays, games,
+    thirdMade, thirdAtt, rzMade, rzAtt, toSeconds
+  })
+
+  return {
+    sample_games: games,
+    pass_rate_pct: Math.round(passRate),
+    rush_rate_pct: Math.round(100 - passRate),
+    third_down_pct: Math.round(thirdPct),
+    red_zone_pct: Math.round(rzPct),
+    plays_pg: playsPg,
+    time_possession_avg: avgTOP
+  }
+}
+
+/* ------------------------ Fallback: last-N games ------------------------ */
 function statValue(statsArr, name) {
-  const s = (statsArr || []).find(x => x?.name === name)
-  // ESPN puts numbers in .value or displayValue; we want raw when possible
-  return clean(s?.value, s?.displayValue)
+  const s = (statsArr || []).find((x) => x?.name === name)
+  return s?.value ?? s?.displayValue ?? null
 }
 
-function extractPerGame(teamBox) {
-  // Pull safe values
-  const stats = teamBox?.statistics || []
-  const passAtt = Number(statValue(stats, 'passingAttempts') || 0)
-  const rushAtt = Number(statValue(stats, 'rushingAttempts') || 0)
-  const thirdDown = String(statValue(stats, 'thirdDownEff') || '0-0')
-  const redZone = String(statValue(stats, 'redZoneEff') || '0-0')
-  const toP = String(statValue(stats, 'timeOfPossession') || '0:00')
+function sumPlayerAttempts(summary, teamId, categoryName, attemptKeys = []) {
+  const blocks = summary?.boxscore?.players || []
+  const teamBlock = blocks.find((t) => String(t?.team?.id) === String(teamId))
+  if (!teamBlock) return 0
+  let total = 0
+  for (const grp of teamBlock?.statistics || []) {
+    const gname = (grp?.name || grp?.displayName || '').toLowerCase()
+    if (gname !== categoryName.toLowerCase()) continue
+    for (const row of grp?.statistics || []) {
+      const key = (row?.name || row?.displayName || '').toLowerCase()
+      if (!attemptKeys.some((k) => key === k.toLowerCase())) continue
+      const raw = row?.value ?? row?.displayValue
+      const num = typeof raw === 'string' ? Number(raw.replace(/[^\d.-]/g, '')) : Number(raw)
+      if (!Number.isNaN(num)) total += num
+    }
+  }
+  return total
+}
 
-  const plays = passAtt + rushAtt // simple, consistent across summaries
+function extractPerGame(summary, teamId, dbg) {
+  const teamBox = (summary?.boxscore?.teams || []).find((t) => String(t?.team?.id) === String(teamId))
+  const stats = teamBox?.statistics || []
+
+  const val = (names) => {
+    for (const n of names) {
+      const v = statValue(stats, n)
+      if (v != null && v !== '') return Number(v) || 0
+    }
+    return 0
+  }
+
+  let passAtt = val(['passingAttempts', 'passAttempts'])
+  let rushAtt = val(['rushingAttempts', 'rushAttempts'])
+  let source = 'team'
+
+  if (passAtt === 0) {
+    const p = sumPlayerAttempts(summary, teamId, 'passing', ['attempts', 'att'])
+    if (p > 0) { passAtt = p; source = 'players' }
+  }
+  if (rushAtt === 0) {
+    let r = sumPlayerAttempts(summary, teamId, 'rushing', ['attempts', 'rushes', 'carries'])
+    if (r === 0) r = sumPlayerAttempts(summary, teamId, 'rushing', ['rushingAttempts'])
+    if (r > 0) { rushAtt = r; source = 'players' }
+  }
+
+  const thirdDown = String(statValue(stats, 'thirdDownEff') || '0-0')
+  const redZone   = String(statValue(stats, 'redZoneEff')   || '0-0')
+  const toP       = String(statValue(stats, 'timeOfPossession') || '0:00')
+
+  const plays = passAtt + rushAtt
+  if (plays <= 0) {
+    dbg?.push({ teamId, used: 'skip', reason: 'no plays' })
+    return null
+  }
+
   const third = parsePair(thirdDown)
-  const rz = parsePair(redZone)
+  const rz    = parsePair(redZone)
   const toSecs = parseTOSecs(toP)
+
+  dbg?.push({ teamId, used: source, passAtt, rushAtt, thirdDown, redZone, toP })
 
   return {
     passAtt, rushAtt, plays,
-    passRate: pct(passAtt, passAtt + rushAtt),
+    passRate: pct(passAtt, plays),
     thirdDownPct: third.pct,
     redZonePct: rz.pct,
     toSecs
   }
 }
 
-async function buildTendencies(teamId, games, label, maxGames = 3) {
-  const recentGames = []
-  for (const g of games) {
-    const evId = g?.id || g?.eventId || g
-    if (!evId) continue
-    const sum = await getGameSummary(evId)
-    if (!sum) continue
-    const box = pickTeamFromSummary(sum, teamId)
-    if (!box) continue
-    recentGames.push(extractPerGame(box))
-    if (recentGames.length >= maxGames) break
+async function buildTendenciesFromLastN(teamId, gameIds, label, maxGames = 3, dbgArr) {
+  const recent = []
+  for (const evId of gameIds) {
+    const summary = await getGameSummary(evId)
+    if (!summary) continue
+    const perGame = extractPerGame(summary, teamId, dbgArr)
+    if (!perGame) continue
+    recent.push(perGame)
+    if (recent.length >= maxGames) break
   }
-  const passRates = recentGames.map(g => g.passRate)
-  const thirdPcts = recentGames.map(g => g.thirdDownPct)
-  const rzPcts = recentGames.map(g => g.redZonePct)
-  const plays = recentGames.map(g => g.plays)
-  const toSecs = recentGames.map(g => g.toSecs)
+
+  const passRates = recent.map((g) => g.passRate)
+  const thirdPcts = recent.map((g) => g.thirdDownPct)
+  const rzPcts    = recent.map((g) => g.redZonePct)
+  const plays     = recent.map((g) => g.plays)
+  const toSecs    = recent.map((g) => g.toSecs)
 
   return {
     label,
-    sample_games: recentGames.length,
+    sample_games: recent.length,
     pass_rate_pct: Math.round(avg(passRates)),
     rush_rate_pct: Math.round(100 - avg(passRates)),
     third_down_pct: Math.round(avg(thirdPcts)),
     red_zone_pct: Math.round(avg(rzPcts)),
     plays_pg: Math.round(avg(plays)),
-    time_possession_avg: secsToMMSS(Math.round(avg(toSecs)))
+    time_possession_avg: secsToMMSS(Math.round(avg(toSecs))),
   }
 }
 
+/* ------------------------ route ------------------------ */
 router.get('/', async (req, res) => {
   const gameId = req.params.id
   const force = String(req.query.force || '') === '1'
   const debug = String(req.query.debug || '') === '1'
   const maxGames = Number(req.query.n || 3)
+  const season = Number(req.query.season) || new Date().getFullYear()
+  const type = Number(req.query.type || 2) // 2 = Regular season
 
+  const key = `${gameId}|n=${maxGames}|s=${season}|t=${type}`
   const now = Date.now()
-  const key = `${gameId}|n=${maxGames}`
+
   if (!force) {
     const cached = cache.get(key)
     if (cached && now - cached.ts < CACHE_MS) {
-      return res.json(debug ? { ...cached.data, debug: { cache: 'hit' } } : cached.data)
+      return res.json(debug ? { ...cached.data, debug: cached.debug } : cached.data)
     }
   }
 
@@ -142,38 +313,69 @@ router.get('/', async (req, res) => {
       return res.status(200).json({ error: 'Teams not found', home: null, away: null })
     }
 
-    const [homeSch, awaySch] = await Promise.all([
-      getTeamSchedule(home.id),
-      getTeamSchedule(away.id)
+    // First try: Core v2 season stats for both teams
+    const dbg = { mode: 'core-preferred', season, type }
+    const [homeCore, awayCore] = await Promise.all([
+      fetchCoreTeamStats(home.id, season, type, (dbg.home_core = [])),
+      fetchCoreTeamStats(away.id, season, type, (dbg.away_core = [])),
     ])
 
-    // ESPN schedule returns events in chronological order; take most recent finished games
-    const pickRecent = (sched, teamId) => {
-      const events = sched?.events || []
-      // Filter completed, newest first
-      const completed = events
-        .filter(e => e?.competitions?.[0]?.status?.type?.completed)
-        .sort((a, b) => new Date(b.date) - new Date(a.date))
-      // For each event, keep its id
-      return completed.map(e => e.id)
+    const homeFromCore = deriveSeasonTendenciesFromCore(homeCore, dbg.home_core)
+    const awayFromCore = deriveSeasonTendenciesFromCore(awayCore, dbg.away_core)
+
+    // Fallback (any side missing)
+    let homeFinal = homeFromCore
+    let awayFinal = awayFromCore
+
+    if (!homeFromCore || !awayFromCore) {
+      dbg.mode = 'core+fallback-lastN'
+      const [homeSch, awaySch] = await Promise.all([
+        getTeamSchedule(home.id),
+        getTeamSchedule(away.id),
+      ])
+
+      const pickRecent = (sched) =>
+        (sched?.events || [])
+          .filter((e) => e?.competitions?.[0]?.status?.type?.completed)
+          .sort((a, b) => new Date(b.date) - new Date(a.date))
+          .map((e) => e.id)
+
+      const homeIds = pickRecent(homeSch)
+      const awayIds = pickRecent(awaySch)
+
+      dbg.home_recent_ids = homeIds.slice(0, maxGames)
+      dbg.away_recent_ids = awayIds.slice(0, maxGames)
+
+      if (!homeFinal) {
+        homeFinal = await buildTendenciesFromLastN(
+          home.id,
+          homeIds,
+          home.displayName || 'Home',
+          maxGames,
+          (dbg.home_calc = [])
+        )
+      }
+      if (!awayFinal) {
+        awayFinal = await buildTendenciesFromLastN(
+          away.id,
+          awayIds,
+          away.displayName || 'Away',
+          maxGames,
+          (dbg.away_calc = [])
+        )
+      }
     }
-
-    const homeRecent = pickRecent(homeSch, home.id)
-    const awayRecent = pickRecent(awaySch, away.id)
-
-    const [homeRec, awayRec] = await Promise.all([
-      buildTendencies(home.id, homeRecent, home.displayName || 'Home', maxGames),
-      buildTendencies(away.id, awayRecent, away.displayName || 'Away', maxGames)
-    ])
 
     const data = {
       sample_n: maxGames,
-      home: { team_id: String(home.id), team: home.displayName, ...homeRec },
-      away: { team_id: String(away.id), team: away.displayName, ...awayRec }
+      season,
+      type,
+      home: { team_id: String(home.id), team: home.displayName, ...(homeFinal || {}) },
+      away: { team_id: String(away.id), team: away.displayName, ...(awayFinal || {}) },
     }
-    cache.set(key, { ts: now, data })
 
-    return res.json(debug ? { ...data, debug: { home_recent_ids: homeRecent.slice(0, maxGames), away_recent_ids: awayRecent.slice(0, maxGames) } } : data)
+    cache.set(key, { ts: now, data, debug: dbg })
+    return res.json(debug ? { ...data, debug: dbg } : data)
   } catch (e) {
     return res.status(200).json({ error: String(e), home: null, away: null })
   }
