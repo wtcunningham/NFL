@@ -10,7 +10,7 @@ This project follows a structured development pipeline designed to ensure clarit
 | Stage | Description | Status |
 |:------|:-------------|:--------|
 | 1 | [Requirements Documentation](https://github.com/wtcunningham/NFL/blob/main/app_requirements_draft_v_1.md) | ✅ Completed |
-| 2 | [Local Build](http://localhost:5173/) | ✅ Completed |
+| 2 | [Local Build](http://localhost:5173/) | 🚧 *In Progress / Next Step* |
 | 3 | [GitHub Hosted](https://github.com/wtcunningham/NFL) | ✅ Completed |
 | 4 | AWS Amplify Integrated | 🚧 Next Step |
 | 5 | Public URL Available | ⏳ Pending |
@@ -25,9 +25,15 @@ This serves as the foundation for the entire build process and ensures alignment
 
 ---
 
-### 2. **Local Build** ✅ *Completed*
+### 2. **Local Build** 🚧 *In Progress / Next Step*
 The initial local environment has been successfully configured and tested.
 All dependencies have been verified, and the application builds and runs correctly on the local machine.
+
+#### **Features**
+- [x] Game List
+- [x] Injury Report
+- [] Tendencies
+- [] Spotlights
 
 ---
 
