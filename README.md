@@ -5,6 +5,18 @@ This project follows a structured development pipeline designed to ensure clarit
 
 ---
 
+## 🧭 Summary of Progress
+
+| Stage | Description | Status |
+|:------|:-------------|:--------|
+| 1 | Requirements Documentation | ✅ Completed |
+| 2 | Local Build | ✅ Completed |
+| 3 | GitHub Hosted | ✅ Completed |
+| 4 | AWS Amplify Integrated | 🚧 Next Step |
+| 5 | Public URL Available | ⏳ Pending |
+
+---
+
 ## ⚙️ Development Pipeline
 
 ### 1. **Requirements Documentation** ✅ *Completed*
@@ -44,18 +56,6 @@ After successful Amplify integration and deployment, a **public URL** will be av
 **Expected outcome:**
 - Public URL accessible via AWS Amplify hosting.
 - Application automatically updated on each GitHub push.
-
----
-
-## 🧭 Summary of Progress
-
-| Stage | Description | Status |
-|:------|:-------------|:--------|
-| 1 | Requirements Documentation | ✅ Completed |
-| 2 | Local Build | ✅ Completed |
-| 3 | GitHub Hosted | ✅ Completed |
-| 4 | AWS Amplify Integrated | 🚧 Next Step |
-| 5 | Public URL Available | ⏳ Pending |
 
 ---
 
