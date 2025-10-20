@@ -1,11 +1,65 @@
-# GridironAI v1.0.6 (LIVE Injuries)
+# 🏈 NFL Project – Development Progress
 
-This release adds **real ESPN injuries** with 15‑minute caching, plus working game details and routing.
+## 📋 Overview
+This project follows a structured development pipeline designed to ensure clarity, consistency, and scalability throughout the build and deployment process.
 
-Quick Start (Windows PowerShell):
-```
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass; ./setup.ps1
-cd backend; npm run migrate; npm run dev
-# new terminal
-cd frontend; npm run dev
-```
+---
+
+## ⚙️ Development Pipeline
+
+### 1. **Requirements Documentation** ✅ *Completed*
+All functional and technical requirements have been gathered, reviewed, and finalized in the requirements document.
+This serves as the foundation for the entire build process and ensures alignment between design and implementation.
+
+---
+
+### 2. **Local Build** ✅ *Completed*
+The initial local environment has been successfully configured and tested.
+All dependencies have been verified, and the application builds and runs correctly on the local machine.
+
+---
+
+### 3. **GitHub Hosted** ✅ *Completed*
+The source code is now hosted in a GitHub repository for version control, collaboration, and continuous tracking.
+This stage ensures that updates, commits, and documentation are properly maintained.
+
+---
+
+### 4. **AWS Amplify Integrated** 🚧 *In Progress / Next Step*
+The next milestone is to integrate the GitHub repository with **AWS Amplify**.
+This will enable automatic deployment from GitHub to a cloud-hosted environment.
+Once integrated, updates to the `main` or designated branch will trigger rebuilds and redeployments automatically.
+
+**Tasks to complete this step:**
+- Connect GitHub repo to AWS Amplify.
+- Configure build settings (`amplify.yml`).
+- Verify environment variables and deployment scripts.
+- Test continuous deployment workflow.
+
+---
+
+### 5. **Public URL Available** ⏳ *Pending*
+After successful Amplify integration and deployment, a **public URL** will be available for live access and testing.
+
+**Expected outcome:**
+- Public URL accessible via AWS Amplify hosting.
+- Application automatically updated on each GitHub push.
+
+---
+
+## 🧭 Summary of Progress
+
+| Stage | Description | Status |
+|:------|:-------------|:--------|
+| 1 | Requirements Documentation | ✅ Completed |
+| 2 | Local Build | ✅ Completed |
+| 3 | GitHub Hosted | ✅ Completed |
+| 4 | AWS Amplify Integrated | 🚧 Next Step |
+| 5 | Public URL Available | ⏳ Pending |
+
+---
+
+## 🚀 Next Steps
+1. Complete AWS Amplify integration.
+2. Verify deployment through Amplify build logs.
+3. Confirm public accessibility and test live environment.
