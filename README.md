@@ -58,8 +58,3 @@ After successful Amplify integration and deployment, a **public URL** will be av
 - Application automatically updated on each GitHub push.
 
 ---
-
-## 🚀 Next Steps
-1. Complete AWS Amplify integration.
-2. Verify deployment through Amplify build logs.
-3. Confirm public accessibility and test live environment.
