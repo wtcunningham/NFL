@@ -7,7 +7,7 @@ This project follows a structured development pipeline designed to ensure clarit
 
 ## 🧭 Summary of Progress
 
-[x] Requirements Documentation -> [x] Local Build -> [x] Github Hosted -> [] AWS Amplify Integrated -> [] Public URL Available
+`[x]` Requirements Documentation -> [x] Local Build -> [x] Github Hosted -> [] AWS Amplify Integrated -> [] Public URL Available
 
 | Stage | Description | Status |
 |:------|:-------------|:--------|
