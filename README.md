@@ -30,9 +30,9 @@ The initial local environment has been successfully configured and tested.
 All dependencies have been verified, and the application builds and runs correctly on the local machine.
 
 #### **Features**
-| Stage | Description | Status |
-|:------|:-------------|:--------|
-| 1 | Game List | ✅ Completed |
+| Stage | Description | Status | Screenshot
+|:------|:-------------|:--------|:--------|
+| 1 | Game List | ✅ Completed | ![gameList](".\images\gameList.png")
 | 2 | Injury Report | ✅ Completed |
 | 3 | Tendencies | ⏳ Pending |
 | 4 | Spotlights | ⏳ Pending |
