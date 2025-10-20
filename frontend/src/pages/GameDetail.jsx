@@ -48,7 +48,7 @@ const fmtDay = (iso) => {
   }
 };
 
-const MAX_VISIBLE_PER_TEAM = 0;
+const MAX_VISIBLE_PER_TEAM = 0; // your preferred "always scroll" setup
 
 /* ---------------------- Page ---------------------- */
 export default function GameDetail() {
@@ -60,6 +60,10 @@ export default function GameDetail() {
   const [spotlights, setSpotlights] = useState(null);
   const [error, setError] = useState(null);
 
+  // per-team status filters (set of status strings)
+  const [homeFilter, setHomeFilter] = useState(() => new Set());
+  const [awayFilter, setAwayFilter] = useState(() => new Set());
+
   // 1️⃣ Fetch meta
   useEffect(() => {
     setMeta(null);
@@ -67,6 +71,8 @@ export default function GameDetail() {
     setTendencies(null);
     setSpotlights(null);
     setError(null);
+    setHomeFilter(new Set());
+    setAwayFilter(new Set());
 
     fetch(`${API}/games/${id}`)
       .then((r) => r.json())
@@ -108,19 +114,33 @@ export default function GameDetail() {
       .catch(() => {});
   }, [id, meta]);
 
-  // 3️⃣ Split injuries by team + day + per-team legends
+  // helpers for filtering logic
+  const matchesFilter = (p, filterSet) => {
+    if (!filterSet || filterSet.size === 0) return true;
+    const s = (p.status || "").toLowerCase();
+    for (const val of filterSet) {
+      if (s === val.toLowerCase()) return true;
+    }
+    return false;
+  };
+
+  // 3️⃣ Split injuries by team + day + legends (counts are from full team list, filters affect the view)
   const {
     homeInj, awayInj,
     homeLegend, awayLegend,
     homeTotal, awayTotal,
   } = useMemo(() => {
     const players = injuries?.players || [];
-    const homePlayers = players.filter(
+    const homeAll = players.filter(
       (p) => (p.team || "").toLowerCase() === (meta?.home_team || "").toLowerCase()
     );
-    const awayPlayers = players.filter(
+    const awayAll = players.filter(
       (p) => (p.team || "").toLowerCase() === (meta?.away_team || "").toLowerCase()
     );
+
+    // Apply per-team filters to visible lists
+    const homeVisible = homeAll.filter((p) => matchesFilter(p, homeFilter));
+    const awayVisible = awayAll.filter((p) => matchesFilter(p, awayFilter));
 
     const groupByDate = (arr) => {
       const map = new Map();
@@ -143,29 +163,75 @@ export default function GameDetail() {
     };
 
     return {
-      homeInj: groupByDate(homePlayers),
-      awayInj: groupByDate(awayPlayers),
-      homeLegend: countStatuses(homePlayers),
-      awayLegend: countStatuses(awayPlayers),
-      homeTotal: homePlayers.length,
-      awayTotal: awayPlayers.length,
+      homeInj: groupByDate(homeVisible),
+      awayInj: groupByDate(awayVisible),
+      homeLegend: countStatuses(homeAll), // legend shows full team totals
+      awayLegend: countStatuses(awayAll),
+      homeTotal: homeAll.length,
+      awayTotal: awayAll.length,
     };
-  }, [injuries, meta]);
+  }, [injuries, meta, homeFilter, awayFilter]);
 
   /* ---------------------- Render helpers ---------------------- */
-  const renderLegend = (legend, total) => (
+  const toggleStatus = (team, status) => {
+    if (team === "home") {
+      setHomeFilter((prev) => {
+        const next = new Set(prev);
+        if (next.has(status)) next.delete(status);
+        else next.add(status);
+        return next;
+      });
+    } else {
+      setAwayFilter((prev) => {
+        const next = new Set(prev);
+        if (next.has(status)) next.delete(status);
+        else next.add(status);
+        return next;
+      });
+    }
+  };
+
+  const clearFilter = (team) => {
+    if (team === "home") setHomeFilter(new Set());
+    else setAwayFilter(new Set());
+  };
+
+  const isActive = (team, status) =>
+    (team === "home" ? homeFilter : awayFilter).has(status);
+
+  const renderLegend = (legend, total, teamKey) => (
     <div className="flex flex-wrap items-center gap-2 mb-3">
-      {legend.map(([status, count]) => (
-        <span
-          key={status}
-          className={"text-xs px-2 py-0.5 rounded-full " + statusStyles(status)}
-        >
-          {count} {status}
-        </span>
-      ))}
+      {legend.map(([status, count]) => {
+        const active = isActive(teamKey, status);
+        return (
+          <button
+            type="button"
+            key={status}
+            onClick={() => toggleStatus(teamKey, status)}
+            className={
+              "text-xs px-2 py-0.5 rounded-full transition-colors " +
+              statusStyles(status) +
+              (active ? " ring-2 ring-offset-0 ring-slate-300/40" : "")
+            }
+            title={active ? "Click to remove filter" : "Click to filter"}
+          >
+            {count} {status}
+          </button>
+        );
+      })}
       <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-200 border border-slate-600/40 ml-auto">
         {total} Total Injuries
       </span>
+      {(teamKey === "home" ? homeFilter.size : awayFilter.size) > 0 && (
+        <button
+          type="button"
+          onClick={() => clearFilter(teamKey)}
+          className="text-xs ml-2 underline underline-offset-2 text-slate-300 hover:text-slate-100"
+          title="Clear filters"
+        >
+          Clear
+        </button>
+      )}
     </div>
   );
 
@@ -232,30 +298,26 @@ export default function GameDetail() {
     </div>
   );
 
-  // Renders first 5 entries, then scrollable rest (preserving day headers in both)
-  const renderTeamInjuries = (teamLabel, grouped, legend, total) => {
+  // Renders first N entries (N=MAX_VISIBLE_PER_TEAM), then scrollable rest
+  const renderTeamInjuries = (teamLabel, grouped, legend, total, teamKey) => {
     const flat = flatten(grouped);
-    const top = flat.slice(0, MAX_VISIBLE_PER_TEAM);
-    const rest = flat.slice(MAX_VISIBLE_PER_TEAM);
+    const top = MAX_VISIBLE_PER_TEAM > 0 ? flat.slice(0, MAX_VISIBLE_PER_TEAM) : [];
+    const rest = MAX_VISIBLE_PER_TEAM > 0 ? flat.slice(MAX_VISIBLE_PER_TEAM) : flat;
     const topGrouped = regroup(top);
     const restGrouped = regroup(rest);
 
     return (
       <div>
         <h4 className="text-base font-semibold mb-2">{teamLabel}</h4>
-        {renderLegend(legend, total)}
+        {renderLegend(legend, total, teamKey)}
         {flat.length === 0 ? (
           <div className="opacity-70 text-sm">No injuries.</div>
         ) : (
           <div className="space-y-4">
-            {/* First 5 (visible) */}
-            {renderGroupedList(topGrouped)}
-            {/* Scrollable rest */}
-            {rest.length > 0 && (
-              <div className="max-h-72 overflow-y-auto pr-2 custom-scroll">
-                {renderGroupedList(restGrouped)}
-              </div>
-            )}
+            {MAX_VISIBLE_PER_TEAM > 0 && renderGroupedList(topGrouped)}
+            <div className="max-h-72 overflow-y-auto pr-2 custom-scroll">
+              {renderGroupedList(restGrouped)}
+            </div>
           </div>
         )}
       </div>
@@ -290,8 +352,8 @@ export default function GameDetail() {
           <div className="opacity-70">No recent injuries recorded.</div>
         ) : (
           <div className="grid sm:grid-cols-2 gap-8">
-            {renderTeamInjuries(meta.away_team, awayInj, awayLegend, awayTotal)}
-            {renderTeamInjuries(meta.home_team, homeInj, homeLegend, homeTotal)}
+            {renderTeamInjuries(meta.away_team, awayInj, awayLegend, awayTotal, "away")}
+            {renderTeamInjuries(meta.home_team, homeInj, homeLegend, homeTotal, "home")}
           </div>
         )}
       </Section>
