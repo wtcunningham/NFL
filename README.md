@@ -32,7 +32,7 @@ All dependencies have been verified, and the application builds and runs correct
 #### **Features**
 | Stage | Description | Status | Screenshot
 |:------|:-------------|:--------|:--------|
-| 1 | Game List | ✅ Completed | ![gameList]("gameList.png")
+| 1 | Game List | ✅ Completed | ![gameList]("images/gameList.png")
 | 2 | Injury Report | ✅ Completed |
 | 3 | Tendencies | ⏳ Pending |
 | 4 | Spotlights | ⏳ Pending |
