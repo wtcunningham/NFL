@@ -34,7 +34,7 @@ All dependencies have been verified, and the application builds and runs correct
 |:------|:-------------|:--------|:--------|
 | 1 | Game List | ✅ Completed | ![gameList](images/gameList.png) |
 | 2 | Injury Report | ✅ Completed | ![injuries](images/injuries.png) |
-| 3 | Tendencies | ⏳ Pending | ![tendencies](images/tendencies.png) |
+| 3 | Tendencies | 🚧 In Progress | ![tendencies](images/tendencies.png) |
 | 4 | Spotlights | ⏳ Pending |
 
 ---
