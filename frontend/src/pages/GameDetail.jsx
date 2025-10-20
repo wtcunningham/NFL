@@ -48,6 +48,8 @@ const fmtDay = (iso) => {
   }
 };
 
+const MAX_VISIBLE_PER_TEAM = 0;
+
 /* ---------------------- Page ---------------------- */
 export default function GameDetail() {
   const { id } = useParams();
@@ -107,51 +109,48 @@ export default function GameDetail() {
   }, [id, meta]);
 
   // 3️⃣ Split injuries by team + day + per-team legends
-  const { homeInj, awayInj, homeLegend, awayLegend, homeTotal, awayTotal } =
-    useMemo(() => {
-      const players = injuries?.players || [];
-      const homePlayers = players.filter(
-        (p) =>
-          (p.team || "").toLowerCase() ===
-          (meta?.home_team || "").toLowerCase()
-      );
-      const awayPlayers = players.filter(
-        (p) =>
-          (p.team || "").toLowerCase() ===
-          (meta?.away_team || "").toLowerCase()
-      );
+  const {
+    homeInj, awayInj,
+    homeLegend, awayLegend,
+    homeTotal, awayTotal,
+  } = useMemo(() => {
+    const players = injuries?.players || [];
+    const homePlayers = players.filter(
+      (p) => (p.team || "").toLowerCase() === (meta?.home_team || "").toLowerCase()
+    );
+    const awayPlayers = players.filter(
+      (p) => (p.team || "").toLowerCase() === (meta?.away_team || "").toLowerCase()
+    );
 
-      const groupByDate = (arr) => {
-        const map = new Map();
-        for (const p of arr) {
-          const k = fmtDay(p.date || p.last_updated_ts);
-          if (!map.has(k)) map.set(k, []);
-          map.get(k).push(p);
-        }
-        return [...map.entries()].sort(
-          (a, b) => new Date(b[0]) - new Date(a[0])
-        );
-      };
+    const groupByDate = (arr) => {
+      const map = new Map();
+      for (const p of arr) {
+        const k = fmtDay(p.date || p.last_updated_ts);
+        if (!map.has(k)) map.set(k, []);
+        map.get(k).push(p);
+      }
+      return [...map.entries()].sort((a, b) => new Date(b[0]) - new Date(a[0]));
+    };
 
-      const countStatuses = (arr) => {
-        const counts = {};
-        for (const p of arr) {
-          const key = (p.status || "Unknown").trim();
-          if (!key) continue;
-          counts[key] = (counts[key] || 0) + 1;
-        }
-        return Object.entries(counts).sort((a, b) => b[1] - a[1]);
-      };
+    const countStatuses = (arr) => {
+      const counts = {};
+      for (const p of arr) {
+        const key = (p.status || "Unknown").trim();
+        if (!key) continue;
+        counts[key] = (counts[key] || 0) + 1;
+      }
+      return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    };
 
-      return {
-        homeInj: groupByDate(homePlayers),
-        awayInj: groupByDate(awayPlayers),
-        homeLegend: countStatuses(homePlayers),
-        awayLegend: countStatuses(awayPlayers),
-        homeTotal: homePlayers.length,
-        awayTotal: awayPlayers.length,
-      };
-    }, [injuries, meta]);
+    return {
+      homeInj: groupByDate(homePlayers),
+      awayInj: groupByDate(awayPlayers),
+      homeLegend: countStatuses(homePlayers),
+      awayLegend: countStatuses(awayPlayers),
+      homeTotal: homePlayers.length,
+      awayTotal: awayPlayers.length,
+    };
+  }, [injuries, meta]);
 
   /* ---------------------- Render helpers ---------------------- */
   const renderLegend = (legend, total) => (
@@ -159,9 +158,7 @@ export default function GameDetail() {
       {legend.map(([status, count]) => (
         <span
           key={status}
-          className={
-            "text-xs px-2 py-0.5 rounded-full " + statusStyles(status)
-          }
+          className={"text-xs px-2 py-0.5 rounded-full " + statusStyles(status)}
         >
           {count} {status}
         </span>
@@ -172,76 +169,98 @@ export default function GameDetail() {
     </div>
   );
 
-  const renderTeamInjuries = (teamLabel, grouped, legend, total) => (
-    <div>
-      <h4 className="text-base font-semibold mb-2">{teamLabel}</h4>
-      {renderLegend(legend, total)}
-      {grouped.length === 0 ? (
-        <div className="opacity-70 text-sm">No injuries.</div>
-      ) : (
-        <div className="space-y-5">
-          {grouped.map(([day, players]) => (
-            <div key={day}>
-              <div className="text-xs uppercase tracking-wide mb-1 text-slate-400">
-                {day}
-              </div>
-              <div className="divide-y divide-slate-800 rounded-xl overflow-hidden bg-slate-900/60">
-                {players.map((p) => (
-                  <div
-                    key={`${p.player_id}-${p.team || ""}`}
-                    className="p-3 sm:p-4 flex gap-3"
-                  >
-                <div className="flex-shrink-0">
-                {p.headshot ? (
-                    <img
-                    src={p.headshot}
-                    alt={p.name}
-                    className="h-10 w-10 rounded-full object-cover border border-slate-700"
-                    onError={(e) => (e.target.style.display = 'none')}
-                    />
-                ) : (
-                    <div className="h-10 w-10 rounded-full bg-slate-800 grid place-items-center text-slate-200 font-semibold">
-                    {initials(p.name)}
-                    </div>
-                )}
-                </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <div className="font-semibold truncate">
-                          {p.name}
-                          {p.pos ? (
-                            <span className="opacity-70 font-normal">
-                              {" "}
-                              ({p.pos})
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-                      <div className="mt-1 flex items-center gap-2">
-                        <span
-                          className={
-                            "text-xs px-2 py-0.5 rounded-full " +
-                            statusStyles(p.status)
-                          }
-                        >
-                          {p.status}
-                        </span>
-                      </div>
-                      {p.detail ? (
-                        <div className="text-sm opacity-90 mt-1">
-                          {p.detail}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
+  // Flatten grouped -> list preserving order, then split -> regroup to keep headers in each part
+  const flatten = (grouped) => {
+    const list = [];
+    for (const [day, players] of grouped) {
+      for (const p of players) list.push({ day, p });
+    }
+    return list;
+  };
+  const regroup = (list) => {
+    const map = new Map();
+    for (const { day, p } of list) {
+      if (!map.has(day)) map.set(day, []);
+      map.get(day).push(p);
+    }
+    return [...map.entries()];
+  };
+
+  const renderPlayerRow = (p) => (
+    <div key={`${p.player_id}-${p.team || ""}`} className="p-3 sm:p-4 flex gap-3">
+      <div className="flex-shrink-0">
+        {p.headshot ? (
+          <img
+            src={p.headshot}
+            alt={p.name}
+            className="h-10 w-10 rounded-full object-cover border border-slate-700"
+            onError={(e) => (e.currentTarget.style.display = "none")}
+          />
+        ) : (
+          <div className="h-10 w-10 rounded-full bg-slate-800 grid place-items-center text-slate-200 font-semibold">
+            {initials(p.name)}
+          </div>
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="font-semibold truncate">
+            {p.name}
+            {p.pos ? <span className="opacity-70 font-normal"> ({p.pos})</span> : null}
+          </div>
         </div>
-      )}
+        <div className="mt-1 flex items-center gap-2">
+          <span className={"text-xs px-2 py-0.5 rounded-full " + statusStyles(p.status)}>
+            {p.status}
+          </span>
+        </div>
+        {p.detail ? <div className="text-sm opacity-90 mt-1">{p.detail}</div> : null}
+      </div>
     </div>
   );
+
+  const renderGroupedList = (grouped) => (
+    <div className="divide-y divide-slate-800 rounded-xl overflow-hidden bg-slate-900/60">
+      {grouped.map(([day, players]) => (
+        <div key={day}>
+          <div className="text-xs uppercase tracking-wide px-3 sm:px-4 pt-3 text-slate-400">
+            {day}
+          </div>
+          {players.map(renderPlayerRow)}
+        </div>
+      ))}
+    </div>
+  );
+
+  // Renders first 5 entries, then scrollable rest (preserving day headers in both)
+  const renderTeamInjuries = (teamLabel, grouped, legend, total) => {
+    const flat = flatten(grouped);
+    const top = flat.slice(0, MAX_VISIBLE_PER_TEAM);
+    const rest = flat.slice(MAX_VISIBLE_PER_TEAM);
+    const topGrouped = regroup(top);
+    const restGrouped = regroup(rest);
+
+    return (
+      <div>
+        <h4 className="text-base font-semibold mb-2">{teamLabel}</h4>
+        {renderLegend(legend, total)}
+        {flat.length === 0 ? (
+          <div className="opacity-70 text-sm">No injuries.</div>
+        ) : (
+          <div className="space-y-4">
+            {/* First 5 (visible) */}
+            {renderGroupedList(topGrouped)}
+            {/* Scrollable rest */}
+            {rest.length > 0 && (
+              <div className="max-h-72 overflow-y-auto pr-2 custom-scroll">
+                {renderGroupedList(restGrouped)}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   /* ---------------------- Render ---------------------- */
   if (error)
@@ -260,8 +279,7 @@ export default function GameDetail() {
         {meta.away_team} @ {meta.home_team}
       </h1>
       <div className="opacity-80 mt-1">
-        {new Date(meta.kickoff_ts).toLocaleString()} •{" "}
-        {meta.venue || "TBD venue"}
+        {new Date(meta.kickoff_ts).toLocaleString()} • {meta.venue || "TBD venue"}
       </div>
 
       {/* -------------------- Injuries -------------------- */}
@@ -272,18 +290,8 @@ export default function GameDetail() {
           <div className="opacity-70">No recent injuries recorded.</div>
         ) : (
           <div className="grid sm:grid-cols-2 gap-8">
-            {renderTeamInjuries(
-              meta.away_team,
-              awayInj,
-              awayLegend,
-              awayTotal
-            )}
-            {renderTeamInjuries(
-              meta.home_team,
-              homeInj,
-              homeLegend,
-              homeTotal
-            )}
+            {renderTeamInjuries(meta.away_team, awayInj, awayLegend, awayTotal)}
+            {renderTeamInjuries(meta.home_team, homeInj, homeLegend, homeTotal)}
           </div>
         )}
       </Section>
@@ -312,8 +320,7 @@ export default function GameDetail() {
                   {pl.name} <span className="opacity-70">({pl.pos})</span>
                 </div>
                 <div className="opacity-80 text-sm">
-                  Confidence:{" "}
-                  {pl.confidence?.toFixed?.(1) ?? pl.confidence ?? "—"}%
+                  Confidence: {pl.confidence?.toFixed?.(1) ?? pl.confidence ?? "—"}%
                 </div>
                 {pl.rationale ? (
                   <div className="opacity-80 text-sm mt-1">{pl.rationale}</div>
