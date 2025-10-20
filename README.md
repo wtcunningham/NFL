@@ -7,14 +7,6 @@ This project follows a structured development pipeline designed to ensure clarit
 
 ## 🧭 Summary of Progress
 
-`[x]` Requirements Documentation -> [x] Local Build -> [x] Github Hosted -> [] AWS Amplify Integrated -> [] Public URL Available
-
-- [x] Requirements Documentation  
-- [x] Local Build  
-- [x] Github Hosted  
-- [ ] AWS Amplify Integrated  
-- [ ] Public URL Available
-
 | Stage | Description | Status |
 |:------|:-------------|:--------|
 | 1 | [Requirements Documentation](https://github.com/wtcunningham/NFL/blob/main/app_requirements_draft_v_1.md) | ✅ Completed |
