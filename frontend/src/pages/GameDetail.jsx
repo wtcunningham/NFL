@@ -106,49 +106,56 @@ export default function GameDetail() {
       .catch(() => {});
   }, [id, meta]);
 
-  // 3️⃣ Split injuries by team + day
-  const { homeInj, awayInj, homeLegend, awayLegend } = useMemo(() => {
-    const players = injuries?.players || [];
-    const homePlayers = players.filter(
-      (p) => (p.team || "").toLowerCase() === (meta?.home_team || "").toLowerCase()
-    );
-    const awayPlayers = players.filter(
-      (p) => (p.team || "").toLowerCase() === (meta?.away_team || "").toLowerCase()
-    );
-
-    const groupByDate = (arr) => {
-      const map = new Map();
-      for (const p of arr) {
-        const k = fmtDay(p.date || p.last_updated_ts);
-        if (!map.has(k)) map.set(k, []);
-        map.get(k).push(p);
-      }
-      return [...map.entries()].sort(
-        (a, b) => new Date(b[0]) - new Date(a[0])
+  // 3️⃣ Split injuries by team + day + per-team legends
+  const { homeInj, awayInj, homeLegend, awayLegend, homeTotal, awayTotal } =
+    useMemo(() => {
+      const players = injuries?.players || [];
+      const homePlayers = players.filter(
+        (p) =>
+          (p.team || "").toLowerCase() ===
+          (meta?.home_team || "").toLowerCase()
       );
-    };
+      const awayPlayers = players.filter(
+        (p) =>
+          (p.team || "").toLowerCase() ===
+          (meta?.away_team || "").toLowerCase()
+      );
 
-    const countStatuses = (arr) => {
-      const counts = {};
-      for (const p of arr) {
-        const key = (p.status || "Unknown").trim();
-        if (!key) continue;
-        counts[key] = (counts[key] || 0) + 1;
-      }
-      return Object.entries(counts).sort((a, b) => b[1] - a[1]);
-    };
+      const groupByDate = (arr) => {
+        const map = new Map();
+        for (const p of arr) {
+          const k = fmtDay(p.date || p.last_updated_ts);
+          if (!map.has(k)) map.set(k, []);
+          map.get(k).push(p);
+        }
+        return [...map.entries()].sort(
+          (a, b) => new Date(b[0]) - new Date(a[0])
+        );
+      };
 
-    return {
-      homeInj: groupByDate(homePlayers),
-      awayInj: groupByDate(awayPlayers),
-      homeLegend: countStatuses(homePlayers),
-      awayLegend: countStatuses(awayPlayers),
-    };
-  }, [injuries, meta]);
+      const countStatuses = (arr) => {
+        const counts = {};
+        for (const p of arr) {
+          const key = (p.status || "Unknown").trim();
+          if (!key) continue;
+          counts[key] = (counts[key] || 0) + 1;
+        }
+        return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+      };
+
+      return {
+        homeInj: groupByDate(homePlayers),
+        awayInj: groupByDate(awayPlayers),
+        homeLegend: countStatuses(homePlayers),
+        awayLegend: countStatuses(awayPlayers),
+        homeTotal: homePlayers.length,
+        awayTotal: awayPlayers.length,
+      };
+    }, [injuries, meta]);
 
   /* ---------------------- Render helpers ---------------------- */
-  const renderLegend = (legend) => (
-    <div className="flex flex-wrap gap-2 mb-3">
+  const renderLegend = (legend, total) => (
+    <div className="flex flex-wrap items-center gap-2 mb-3">
       {legend.map(([status, count]) => (
         <span
           key={status}
@@ -159,13 +166,16 @@ export default function GameDetail() {
           {count} {status}
         </span>
       ))}
+      <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-200 border border-slate-600/40 ml-auto">
+        {total} Total Injuries
+      </span>
     </div>
   );
 
-  const renderTeamInjuries = (teamLabel, grouped, legend) => (
+  const renderTeamInjuries = (teamLabel, grouped, legend, total) => (
     <div>
       <h4 className="text-base font-semibold mb-2">{teamLabel}</h4>
-      {renderLegend(legend)}
+      {renderLegend(legend, total)}
       {grouped.length === 0 ? (
         <div className="opacity-70 text-sm">No injuries.</div>
       ) : (
@@ -253,8 +263,18 @@ export default function GameDetail() {
           <div className="opacity-70">No recent injuries recorded.</div>
         ) : (
           <div className="grid sm:grid-cols-2 gap-8">
-            {renderTeamInjuries(meta.away_team, awayInj, awayLegend)}
-            {renderTeamInjuries(meta.home_team, homeInj, homeLegend)}
+            {renderTeamInjuries(
+              meta.away_team,
+              awayInj,
+              awayLegend,
+              awayTotal
+            )}
+            {renderTeamInjuries(
+              meta.home_team,
+              homeInj,
+              homeLegend,
+              homeTotal
+            )}
           </div>
         )}
       </Section>
