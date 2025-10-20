@@ -107,12 +107,12 @@ export default function GameDetail() {
   }, [id, meta]);
 
   // 3️⃣ Split injuries by team + day
-  const { homeInj, awayInj } = useMemo(() => {
+  const { homeInj, awayInj, homeLegend, awayLegend } = useMemo(() => {
     const players = injuries?.players || [];
-    const home = players.filter(
+    const homePlayers = players.filter(
       (p) => (p.team || "").toLowerCase() === (meta?.home_team || "").toLowerCase()
     );
-    const away = players.filter(
+    const awayPlayers = players.filter(
       (p) => (p.team || "").toLowerCase() === (meta?.away_team || "").toLowerCase()
     );
 
@@ -127,19 +127,45 @@ export default function GameDetail() {
         (a, b) => new Date(b[0]) - new Date(a[0])
       );
     };
-    return { homeInj: groupByDate(home), awayInj: groupByDate(away) };
+
+    const countStatuses = (arr) => {
+      const counts = {};
+      for (const p of arr) {
+        const key = (p.status || "Unknown").trim();
+        if (!key) continue;
+        counts[key] = (counts[key] || 0) + 1;
+      }
+      return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    };
+
+    return {
+      homeInj: groupByDate(homePlayers),
+      awayInj: groupByDate(awayPlayers),
+      homeLegend: countStatuses(homePlayers),
+      awayLegend: countStatuses(awayPlayers),
+    };
   }, [injuries, meta]);
 
-  /* ---------------------- Render ---------------------- */
-  if (error)
-    return (
-      <div className="max-w-5xl mx-auto p-6 text-red-400">Error: {error}</div>
-    );
-  if (!meta) return <div className="max-w-5xl mx-auto p-6">Loading…</div>;
+  /* ---------------------- Render helpers ---------------------- */
+  const renderLegend = (legend) => (
+    <div className="flex flex-wrap gap-2 mb-3">
+      {legend.map(([status, count]) => (
+        <span
+          key={status}
+          className={
+            "text-xs px-2 py-0.5 rounded-full " + statusStyles(status)
+          }
+        >
+          {count} {status}
+        </span>
+      ))}
+    </div>
+  );
 
-  const renderTeamInjuries = (teamLabel, grouped) => (
+  const renderTeamInjuries = (teamLabel, grouped, legend) => (
     <div>
       <h4 className="text-base font-semibold mb-2">{teamLabel}</h4>
+      {renderLegend(legend)}
       {grouped.length === 0 ? (
         <div className="opacity-70 text-sm">No injuries.</div>
       ) : (
@@ -198,6 +224,13 @@ export default function GameDetail() {
     </div>
   );
 
+  /* ---------------------- Render ---------------------- */
+  if (error)
+    return (
+      <div className="max-w-5xl mx-auto p-6 text-red-400">Error: {error}</div>
+    );
+  if (!meta) return <div className="max-w-5xl mx-auto p-6">Loading…</div>;
+
   return (
     <div className="max-w-6xl mx-auto p-6">
       <Link to="/" className="text-sm opacity-80">
@@ -220,8 +253,8 @@ export default function GameDetail() {
           <div className="opacity-70">No recent injuries recorded.</div>
         ) : (
           <div className="grid sm:grid-cols-2 gap-8">
-            {renderTeamInjuries(meta.away_team, awayInj)}
-            {renderTeamInjuries(meta.home_team, homeInj)}
+            {renderTeamInjuries(meta.away_team, awayInj, awayLegend)}
+            {renderTeamInjuries(meta.home_team, homeInj, homeLegend)}
           </div>
         )}
       </Section>
