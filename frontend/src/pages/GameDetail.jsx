@@ -358,16 +358,57 @@ export default function GameDetail() {
         )}
       </Section>
 
-      {/* -------------------- Tendencies -------------------- */}
-      <Section title="Tendencies">
-        {tendencies ? (
-          <pre className="text-sm whitespace-pre-wrap">
-            {JSON.stringify(tendencies, null, 2)}
-          </pre>
-        ) : (
-          <div className="opacity-70">Loading…</div>
-        )}
-      </Section>
+    {/* -------------------- Tendencies -------------------- */}
+    <Section title="Tendencies">
+    {!tendencies ? (
+        <div className="opacity-70">Loading…</div>
+    ) : tendencies.error ? (
+        <div className="text-red-300">Couldn’t load tendencies.</div>
+    ) : (
+        <div className="grid sm:grid-cols-2 gap-4">
+        {[['away','Away'], ['home','Home']].map(([key, label]) => {
+            const t = tendencies[key]
+            if (!t) return null
+            return (
+            <div key={key} className="rounded-xl border border-slate-800 p-4">
+                <div className="text-sm opacity-70 mb-1">{label} Team</div>
+                <div className="text-xl font-semibold">{t.team}</div>
+                <div className="text-xs opacity-70 mb-3">
+                Last {t.sample_games} games
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="rounded-lg bg-slate-800/50 p-3">
+                    <div className="opacity-70">Pass Rate</div>
+                    <div className="text-lg font-semibold">{t.pass_rate_pct}%</div>
+                </div>
+                <div className="rounded-lg bg-slate-800/50 p-3">
+                    <div className="opacity-70">Rush Rate</div>
+                    <div className="text-lg font-semibold">{t.rush_rate_pct}%</div>
+                </div>
+                <div className="rounded-lg bg-slate-800/50 p-3">
+                    <div className="opacity-70">3rd Down</div>
+                    <div className="text-lg font-semibold">{t.third_down_pct}%</div>
+                </div>
+                <div className="rounded-lg bg-slate-800/50 p-3">
+                    <div className="opacity-70">Red Zone</div>
+                    <div className="text-lg font-semibold">{t.red_zone_pct}%</div>
+                </div>
+                <div className="rounded-lg bg-slate-800/50 p-3">
+                    <div className="opacity-70">Plays / G</div>
+                    <div className="text-lg font-semibold">{t.plays_pg}</div>
+                </div>
+                <div className="rounded-lg bg-slate-800/50 p-3">
+                    <div className="opacity-70">Avg TOP</div>
+                    <div className="text-lg font-semibold">{t.time_possession_avg}</div>
+                </div>
+                </div>
+            </div>
+            )
+        })}
+        </div>
+    )}
+    </Section>
+
 
       {/* -------------------- Spotlights -------------------- */}
       <Section title="Spotlights">
