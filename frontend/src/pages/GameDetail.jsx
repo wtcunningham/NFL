@@ -7,7 +7,7 @@ function Section({ title, children }) {
   return (
     <section className="mt-6">
       <h3 className="text-lg font-semibold mb-2">{title}</h3>
-      <div className="rounded-2xl bg-slate-900 p-4">{children}</div>
+      <div className="rounded-2xl bg-slate-900 text-white p-4">{children}</div>    
     </section>
   );
 }
