@@ -30,11 +30,11 @@ The initial local environment has been successfully configured and tested.
 All dependencies have been verified, and the application builds and runs correctly on the local machine.
 
 #### **Features**
-| Stage | Description | Status | Screenshot
-|:------|:-------------|:--------|:--------|
-| 1 | Game List | ✅ Completed | ![gameList](images/gameList.png) |
-| 2 | Injury Report | ✅ Completed | ![injuries](images/injuries.png) |
-| 3 | Tendencies | 🚧 In Progress | ![tendencies](images/tendencies.png) |
+| Stage | Description | Status | Dark Mode | Light Mode
+|:------|:-------------|:--------|:--------|:--------|
+| 1 | Game List | ✅ Completed | ![gameList](images/gameList_darkMode.png) |
+| 2 | Injury Report | ✅ Completed | ![injuries](images/injuries_darkMode.png) |
+| 3 | Tendencies | 🚧 In Progress | ![tendencies](images/tendencies_darkMode.png) |
 | 4 | Spotlights | ⏳ Pending |
 
 ---
